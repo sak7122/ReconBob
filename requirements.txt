@@ -1,0 +1,12 @@
+functions-framework==3.*
+google-cloud-firestore==2.*
+google-cloud-aiplatform==1.*
+vertexai==1.*
+twilio==9.*
+pydantic==2.*
+pillow==11.*
+pillow-heif==0.*
+requests==2.*
+
+# dev
+pytest==8.*

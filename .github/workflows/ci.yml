@@ -1,0 +1,56 @@
+###############################################################################
+# ReconBob — CI (runs on every push + PR, all branches)
+#   1. test    — pytest (pure-logic suite, no GCP/Vertex/Twilio needed)
+#   2. infra   — terraform fmt check + validate
+#   3. image   — docker build verify (no push)
+###############################################################################
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: pytest
+        run: python -m pytest tests/ -v --tb=short
+        env:
+          ENV: development
+          GCP_PROJECT_ID: reconbob-ci
+
+  infra:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: fmt
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+      - name: init (no backend)
+        run: terraform -chdir=infra/terraform init -backend=false
+      - name: validate
+        run: terraform -chdir=infra/terraform validate
+
+  image:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (verify only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

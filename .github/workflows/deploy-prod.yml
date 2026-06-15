@@ -1,0 +1,26 @@
+###############################################################################
+# Deploy → PROD. Runs on push to `main` (gate with `production` environment
+# protection rules in GitHub for manual approval) or manual dispatch.
+# Warm webhook (min 1 instance) to hold the <15s latency target.
+###############################################################################
+name: Deploy Prod
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for manual prod deploy"
+        required: false
+        default: ""
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      gh_environment: production
+      app_env: production
+      suffix: ""
+      min_instances: "1"
+    secrets: inherit

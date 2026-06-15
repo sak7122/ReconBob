@@ -1,0 +1,69 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "firebase": {
+      "command": "npx",
+      "args": ["-y", "firebase-tools@latest", "experimental:mcp"],
+      "env": {
+        "FIREBASE_TOKEN": "${FIREBASE_TOKEN}"
+      }
+    },
+    "cloudrun": {
+      "command": "npx",
+      "args": ["-y", "@google-cloud/cloud-run-mcp"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "${GOOGLE_APPLICATION_CREDENTIALS}",
+        "GCP_PROJECT_ID": "${GCP_PROJECT_ID}"
+      }
+    },
+    "stripe": {
+      "command": "npx",
+      "args": ["-y", "@stripe/mcp", "--tools=all"],
+      "env": {
+        "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
+      }
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "E:\\ORACLE_2\\ReconBob"]
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest*)",
+      "Bash(python -m venv*)",
+      "Bash(functions-framework*)",
+      "Bash(curl *)",
+      "PowerShell(python -m pytest*)",
+      "PowerShell(functions-framework*)",
+      "PowerShell(firebase *)",
+      "PowerShell(gcloud *)",
+      "PowerShell(npm run*)",
+      "PowerShell(npm install*)",
+      "PowerShell(node *)",
+      "PowerShell(npx *)",
+      "PowerShell(.venv\\Scripts\\python*)",
+      "PowerShell(Invoke-RestMethod http://127.0.0.1*)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Get-Command *)"
+    ]
+  }
+}

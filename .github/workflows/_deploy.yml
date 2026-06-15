@@ -1,0 +1,104 @@
+###############################################################################
+# ReconBob — reusable deploy (called by deploy-dev.yml and deploy-prod.yml)
+#
+# Builds one image, pushes to Artifact Registry, deploys two Cloud Run services:
+#   reconbob-webhook<suffix>    (public; Twilio calls it, signature validated in app)
+#   reconbob-recon-job<suffix>  (private; only the Scheduler OIDC (runtime SA) may invoke)
+#
+# Auth = Workload Identity Federation (keyless). App secrets come from GCP Secret
+# Manager via --set-secrets (NOT GitHub secrets).
+###############################################################################
+on:
+  workflow_call:
+    inputs:
+      gh_environment:
+        required: true
+        type: string        # github environment (dev | production) — controls approval
+      app_env:
+        required: true
+        type: string        # ENV value: development | production
+      suffix:
+        required: true
+        type: string        # "" for prod, "-dev" for dev
+      min_instances:
+        required: false
+        type: string
+        default: "0"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.gh_environment }}
+    permissions:
+      contents: read
+      id-token: write       # required for WIF
+    env:
+      REGION: us-central1
+      PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+      RUNTIME_SA: ${{ secrets.GCP_RUNTIME_SA }}
+      SECRETS: "TWILIO_ACCOUNT_SID=reconbob-twilio-account-sid:latest,TWILIO_AUTH_TOKEN=reconbob-twilio-auth-token:latest,TWILIO_WHATSAPP_FROM=reconbob-twilio-whatsapp-from:latest"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push image (as deployer SA, avoids Cloud Build SA)
+        id: build
+        run: |
+          gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/reconbob/app:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy webhook → Cloud Run
+        id: webhook
+        run: |
+          URL=$(gcloud run deploy reconbob-webhook${{ inputs.suffix }} \
+            --image "${{ steps.build.outputs.image }}" \
+            --region "$REGION" --project "$PROJECT" \
+            --service-account "$RUNTIME_SA" \
+            --allow-unauthenticated \
+            --min-instances ${{ inputs.min_instances }} --max-instances 5 \
+            --memory 1Gi --cpu 1 --timeout 120 --port 8080 \
+            --set-env-vars "ENV=${{ inputs.app_env }},GCP_PROJECT_ID=$PROJECT,GCP_REGION=$REGION,BANK_FEED=mock,GEMINI_OCR_MODEL=gemini-2.0-flash,GEMINI_PRO_MODEL=gemini-2.0-pro,MAX_RECEIPTS_PER_USER_DAY=100,MAX_GEMINI_CALLS_DAY=5000" \
+            --update-secrets "$SECRETS" \
+            --set-env-vars "FUNCTION_TARGET=webhook,FUNCTION_SOURCE=src/main.py" \
+            --format 'value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy recon-job → Cloud Run (private)
+        id: reconjob
+        run: |
+          URL=$(gcloud run deploy reconbob-recon-job${{ inputs.suffix }} \
+            --image "${{ steps.build.outputs.image }}" \
+            --region "$REGION" --project "$PROJECT" \
+            --service-account "$RUNTIME_SA" \
+            --no-allow-unauthenticated \
+            --min-instances 0 --max-instances 3 \
+            --memory 512Mi --cpu 1 --timeout 300 --port 8080 \
+            --set-env-vars "ENV=${{ inputs.app_env }},GCP_PROJECT_ID=$PROJECT,GCP_REGION=$REGION,BANK_FEED=mock" \
+            --update-secrets "$SECRETS" \
+            --set-env-vars "FUNCTION_TARGET=recon_job,FUNCTION_SOURCE=src/recon_job.py" \
+            --format 'value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Allow runtime SA to invoke recon-job (Scheduler OIDC)
+        run: |
+          gcloud run services add-iam-policy-binding reconbob-recon-job${{ inputs.suffix }} \
+            --region "$REGION" --project "$PROJECT" \
+            --member "serviceAccount:$RUNTIME_SA" --role roles/run.invoker
+
+      - name: Summary
+        run: |
+          echo "### ReconBob deploy (${{ inputs.gh_environment }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- webhook:  ${{ steps.webhook.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- recon_job: ${{ steps.reconjob.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Point the Twilio WhatsApp webhook at the webhook URL. Set recon_job_url in tfvars to the recon_job URL and re-apply Terraform to create the Scheduler job." >> "$GITHUB_STEP_SUMMARY"

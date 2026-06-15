@@ -1,0 +1,19 @@
+###############################################################################
+# Deploy → DEV. Auto-deploys on push to `develop`. Services suffixed -dev.
+###############################################################################
+name: Deploy Dev
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      gh_environment: dev
+      app_env: development
+      suffix: "-dev"
+      min_instances: "0"
+    secrets: inherit
