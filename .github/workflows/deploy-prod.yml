@@ -1,7 +1,8 @@
 ###############################################################################
 # Deploy → PROD. Runs on push to `main` (gate with `production` environment
-# protection rules in GitHub for manual approval) or manual dispatch.
+# protection rules for manual approval) or manual dispatch.
 # Warm webhook (min 1 instance) to hold the <15s latency target.
+# Auth = Workload Identity Federation. App secrets from GCP Secret Manager.
 ###############################################################################
 name: Deploy Prod
 
@@ -15,12 +16,66 @@ on:
         required: false
         default: ""
 
+env:
+  REGION: us-central1
+  APP_ENV: production
+  SUFFIX: ""
+  MIN_INSTANCES: "1"
+  APP_SECRETS: "TWILIO_ACCOUNT_SID=reconbob-twilio-account-sid:latest,TWILIO_AUTH_TOKEN=reconbob-twilio-auth-token:latest,TWILIO_WHATSAPP_FROM=reconbob-twilio-whatsapp-from:latest"
+
 jobs:
   deploy:
-    uses: ./.github/workflows/_deploy.yml
-    with:
-      gh_environment: production
-      app_env: production
-      suffix: ""
-      min_instances: "1"
-    secrets: inherit
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push image
+        id: build
+        run: |
+          gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+          IMAGE="${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/reconbob/app:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy webhook → Cloud Run (public)
+        run: |
+          gcloud run deploy reconbob-webhook${SUFFIX} \
+            --image "${{ steps.build.outputs.image }}" \
+            --region "$REGION" --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --service-account "${{ secrets.GCP_RUNTIME_SA }}" \
+            --allow-unauthenticated \
+            --min-instances "$MIN_INSTANCES" --max-instances 5 \
+            --memory 1Gi --cpu 1 --timeout 120 --port 8080 \
+            --set-env-vars "ENV=$APP_ENV,GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_REGION=$REGION,BANK_FEED=mock,GEMINI_OCR_MODEL=gemini-2.0-flash,GEMINI_PRO_MODEL=gemini-2.0-pro,MAX_RECEIPTS_PER_USER_DAY=100,MAX_GEMINI_CALLS_DAY=5000,FUNCTION_TARGET=webhook,FUNCTION_SOURCE=src/main.py" \
+            --update-secrets "$APP_SECRETS"
+
+      - name: Deploy recon-job → Cloud Run (private)
+        run: |
+          gcloud run deploy reconbob-recon-job${SUFFIX} \
+            --image "${{ steps.build.outputs.image }}" \
+            --region "$REGION" --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --service-account "${{ secrets.GCP_RUNTIME_SA }}" \
+            --no-allow-unauthenticated \
+            --min-instances 0 --max-instances 3 \
+            --memory 512Mi --cpu 1 --timeout 300 --port 8080 \
+            --set-env-vars "ENV=$APP_ENV,GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_REGION=$REGION,BANK_FEED=mock,FUNCTION_TARGET=recon_job,FUNCTION_SOURCE=src/recon_job.py" \
+            --update-secrets "$APP_SECRETS"
+
+      - name: Allow runtime SA to invoke recon-job (Scheduler OIDC)
+        run: |
+          gcloud run services add-iam-policy-binding reconbob-recon-job${SUFFIX} \
+            --region "$REGION" --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --member "serviceAccount:${{ secrets.GCP_RUNTIME_SA }}" --role roles/run.invoker
