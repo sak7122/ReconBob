@@ -68,7 +68,22 @@ def extract_receipt(image_bytes: bytes, content_type: str) -> Receipt:
         t0 = time.time()
         try:
             resp = model.generate_content(parts, generation_config=gen_cfg)
-            receipt = Receipt.model_validate(json.loads(resp.text))
+
+            # Guard against empty or refused responses before parsing.
+            candidates = getattr(resp, "candidates", None) or []
+            if not candidates:
+                raise RuntimeError("Gemini returned no candidates (possible content refusal)")
+            raw = getattr(resp, "text", None)
+            if not raw or not raw.strip():
+                finish = getattr(candidates[0], "finish_reason", "unknown")
+                raise RuntimeError(f"Gemini returned empty text (finish_reason={finish})")
+
+            try:
+                receipt = Receipt.model_validate(json.loads(raw))
+            except Exception as parse_err:
+                # Parse/validation errors are not transient — don't retry.
+                raise RuntimeError(f"OCR response failed validation: {parse_err}") from parse_err
+
             usage = getattr(resp, "usage_metadata", None)
             log.info(
                 "ocr ok",
@@ -77,12 +92,17 @@ def extract_receipt(image_bytes: bytes, content_type: str) -> Receipt:
                     "latency_ms": int((time.time() - t0) * 1000),
                     "confidence": receipt.confidence,
                     "needs_review": receipt.needs_review,
-                    "tokens": getattr(usage, "total_token_count", None),
+                    "prompt_tokens": getattr(usage, "prompt_token_count", None),
+                    "output_tokens": getattr(usage, "candidates_token_count", None),
+                    "total_tokens": getattr(usage, "total_token_count", None),
                 },
             )
             return receipt
-        except Exception as e:  # transient Vertex / parse error
+        except RuntimeError:
+            # RuntimeErrors from the parse/validation guard above are not retryable.
+            raise
+        except Exception as e:  # transient Vertex / network error
             last_err = e
-            log.warning("ocr attempt %d failed: %s", attempt + 1, e)
-            time.sleep(0.5 * (attempt + 1))
+            log.warning("ocr attempt %d failed (transient): %s", attempt + 1, e)
+            time.sleep(0.5 * (2 ** attempt))  # 0.5s, 1.0s
     raise RuntimeError(f"OCR failed after retries: {last_err}")

@@ -111,13 +111,18 @@ def create_unverified_memo(phone: str, txn_id: str, note: str) -> str:
     return doc.id
 
 
-def set_line_item_business(phone: str, receipt_id: str, index: int, is_business: bool) -> None:
+def set_line_item_business(phone: str, receipt_id: str, index: int, is_business: bool) -> bool:
+    """Update a line item's is_business flag. Returns True if the update was applied."""
     ref = user_ref(phone).collection("receipts").document(receipt_id)
     data = ref.get().to_dict() or {}
     items = data.get("line_items", [])
     if 0 <= index < len(items):
         items[index]["is_business"] = is_business
         ref.update({"line_items": items})
+        return True
+    log.warning("set_line_item_business: index %d out of range (len=%d) for receipt %s",
+                index, len(items), receipt_id)
+    return False
 
 
 def open_session(phone: str, pending_action: str, context: dict[str, Any]) -> None:

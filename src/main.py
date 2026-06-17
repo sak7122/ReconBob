@@ -51,7 +51,11 @@ def webhook(request):
         log.warning("rejected unsigned webhook")
         return ("forbidden", 403)
 
-    sender = params.get("From", "")
+    sender = params.get("From", "").strip()
+    if not sender:
+        log.warning("webhook received with empty From field")
+        return ("bad request", 400)
+
     num_media = int(params.get("NumMedia", "0"))
 
     if num_media == 0:

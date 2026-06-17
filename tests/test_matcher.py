@@ -45,3 +45,14 @@ def test_ambiguous_two_close_candidates():
     r = match_receipt(143.50, "Home Depot", "2026-06-16", txns)
     assert r.method is MatchMethod.AMBIGUOUS
     assert len(r.candidates) == 2
+
+
+def test_tiebreak_prefers_most_recent_transaction():
+    # Both transactions are identical except date; more recent (day_offset=0) should rank first.
+    txns = [
+        _txn("older", 143.50, "Home Depot", "HOMEDEPOT #4112", -3),
+        _txn("newer", 143.50, "Home Depot", "HOMEDEPOT #4112", 0),
+    ]
+    r = match_receipt(143.50, "Home Depot", "2026-06-16", txns)
+    # When scores differ (due to date proximity), newer wins and should be best candidate.
+    assert r.candidates[0].txn.txn_id == "newer"

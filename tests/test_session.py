@@ -8,15 +8,22 @@ class FakeStore:
         self.cleared = False
         self.line_updates = []
         self.memos = []
+        self.sessions_opened = []
 
     def get_session(self, phone):
         return self.current
 
     def clear_session(self, phone):
         self.cleared = True
+        self.current = None
+
+    def open_session(self, phone, pending_action, context):
+        self.sessions_opened.append((pending_action, context))
+        self.current = {"pending_action": pending_action, "context": context}
 
     def set_line_item_business(self, phone, rid, idx, is_business):
         self.line_updates.append((rid, idx, is_business))
+        return True  # simulate successful update
 
     def create_unverified_memo(self, phone, txn_id, note):
         self.memos.append((txn_id, note))
@@ -72,3 +79,43 @@ def test_need_receipt_text_creates_memo(monkeypatch):
     reply = session.handle_text("p", "Smith job wire")
     assert fake.memos == [("t1", "Smith job wire")]
     assert "unverified memo" in reply.lower()
+    assert fake.cleared  # no queue → session should be cleared
+
+
+def test_need_receipt_queue_advances_to_next(monkeypatch):
+    """After answering first orphan, session advances to the second one."""
+    queue = [{"txn_id": "t2", "amount": 55.0, "merchant": "Shell"}]
+    fake = FakeStore(current={"pending_action": "need_receipt",
+                              "context": {"txn_id": "t1", "amount": 320.0,
+                                          "merchant": "City Electric", "queue": queue}})
+    _patch(monkeypatch, fake)
+    reply = session.handle_text("p", "Smith job wire")
+    assert fake.memos == [("t1", "Smith job wire")]
+    # Session should NOT be cleared — it advances to t2
+    assert not fake.cleared
+    # A new session should have been opened for t2
+    assert len(fake.sessions_opened) == 1
+    _, ctx = fake.sessions_opened[0]
+    assert ctx["txn_id"] == "t2"
+    assert ctx["queue"] == []
+    # Reply should mention the next charge
+    assert "Shell" in reply or "55" in reply
+
+
+def test_need_receipt_last_in_queue_clears_session(monkeypatch):
+    """Answering the last orphan in the queue clears the session."""
+    fake = FakeStore(current={"pending_action": "need_receipt",
+                              "context": {"txn_id": "t2", "amount": 55.0,
+                                          "merchant": "Shell", "queue": []}})
+    _patch(monkeypatch, fake)
+    session.handle_text("p", "fuel for the truck")
+    assert fake.cleared
+
+
+def test_unknown_pending_action_clears_session(monkeypatch):
+    """A stale or unrecognised pending_action results in a greeting and cleared session."""
+    fake = FakeStore(current={"pending_action": "obsolete_action", "context": {}})
+    _patch(monkeypatch, fake)
+    reply = session.handle_text("p", "hello")
+    assert fake.cleared
+    assert "photo" in reply.lower()

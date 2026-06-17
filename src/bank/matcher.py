@@ -4,15 +4,19 @@ Strategy (see bank-reconciliation skill):
   1. Candidate filter: ±3-day window + amount within tolerance.
   2. Score: amount closeness + merchant-name similarity + date proximity.
   3. Classify: AUTO (single confident) / AMBIGUOUS (let LLM disambiguate aliases) / UNMATCHED.
+  4. Tie-break: on equal scores, prefer the most recent transaction.
 """
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import Enum
 
 from src.bank.feed import Transaction
+
+log = logging.getLogger("reconbob.matcher")
 
 DATE_WINDOW_DAYS = 3
 AUTO_THRESHOLD = 0.82          # min score to auto-match
@@ -79,12 +83,30 @@ def match_receipt(receipt_total: float, receipt_merchant: str,
             continue
         cands.append(Candidate(t, score(receipt_total, receipt_merchant, rdate, t)))
 
-    cands.sort(key=lambda c: c.score, reverse=True)
+    # Tie-break: equal scores prefer the most recent transaction.
+    cands.sort(key=lambda c: (c.score, c.txn.date), reverse=True)
     if not cands:
         return MatchResult(MatchMethod.UNMATCHED, None, [])
 
     best = cands[0]
     runner = cands[1].score if len(cands) > 1 else 0.0
     if best.score >= AUTO_THRESHOLD and (best.score - runner) >= AMBIGUOUS_MARGIN:
-        return MatchResult(MatchMethod.AUTO, best, cands)
-    return MatchResult(MatchMethod.AMBIGUOUS, best, cands)
+        method = MatchMethod.AUTO
+    else:
+        method = MatchMethod.AMBIGUOUS
+
+    log.debug(
+        "match result",
+        extra={
+            "receipt_merchant": receipt_merchant,
+            "receipt_total": receipt_total,
+            "method": method.value,
+            "best_score": round(best.score, 3),
+            "runner_score": round(runner, 3),
+            "top_candidates": [
+                {"txn_id": c.txn.txn_id, "score": round(c.score, 3)} for c in cands[:3]
+            ],
+        },
+    )
+
+    return MatchResult(method, best, cands)

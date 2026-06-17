@@ -1,9 +1,10 @@
 """Receipt schema + validation. Single source of truth for OCR output shape."""
 from __future__ import annotations
 
+import datetime as dt
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # JSON schema passed to Gemini for controlled generation (response_schema).
 RECEIPT_RESPONSE_SCHEMA = {
@@ -47,6 +48,12 @@ class LineItem(BaseModel):
     category_guess: Optional[str] = None
     is_business: bool = True
 
+    @field_validator("amount", "unit_price", mode="before")
+    @classmethod
+    def clamp_non_negative(cls, v: float) -> float:
+        """Receipts never have negative line amounts; clamp any bad OCR output."""
+        return max(0.0, float(v or 0.0))
+
 
 class Receipt(BaseModel):
     merchant: str
@@ -61,6 +68,23 @@ class Receipt(BaseModel):
 
     # set by validation, not the model
     needs_review: bool = False
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def validate_date_format(cls, v: str) -> str:
+        """Ensure OCR-extracted date is valid ISO format (YYYY-MM-DD)."""
+        if not v:
+            return v
+        try:
+            dt.datetime.strptime(str(v), "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(f"date must be YYYY-MM-DD, got {v!r}") from exc
+        return str(v)
+
+    @field_validator("total", "subtotal", "tax", mode="before")
+    @classmethod
+    def clamp_totals_non_negative(cls, v: float) -> float:
+        return max(0.0, float(v or 0.0))
 
     @model_validator(mode="after")
     def flag_math_mismatch(self) -> "Receipt":

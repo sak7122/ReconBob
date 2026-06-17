@@ -27,13 +27,36 @@ def _prompt_text(txn: dict) -> str:
 
 
 def run_for_user(phone: str) -> int:
-    orphans = reconcile_user(phone)
+    """Reconcile one user; return number of orphan prompts sent. Never raises."""
+    try:
+        orphans = reconcile_user(phone)
+    except Exception:
+        log.exception("reconcile_user failed", extra={"phone": phone})
+        return 0
+
+    if not orphans:
+        return 0
+
+    # Queue all orphans in a single session so answers stay in order.
+    # The first orphan becomes the active context; the rest sit in `queue`.
+    first, *rest = orphans
+    ctx = {
+        "txn_id": first["txn_id"],
+        "amount": first["amount"],
+        "merchant": first["merchant"],
+        "queue": [{"txn_id": t["txn_id"], "amount": t["amount"], "merchant": t["merchant"]}
+                  for t in rest],
+    }
+    store.open_session(phone, "need_receipt", ctx)
+
+    # Send a WhatsApp message for every orphan so the user sees them all at once.
     for txn in orphans:
-        # one open decision at a time — last orphan wins the current session
-        store.open_session(phone, "need_receipt", {"txn_id": txn["txn_id"],
-                                                    "amount": txn["amount"],
-                                                    "merchant": txn["merchant"]})
-        send_message(phone, _prompt_text(txn))  # proactive => approved template in prod
+        try:
+            send_message(phone, _prompt_text(txn))
+        except Exception:
+            log.warning("send_message failed for orphan", extra={"phone": phone,
+                                                                   "txn_id": txn["txn_id"]})
+
     log.info("recon done", extra={"phone": phone, "orphans": len(orphans)})
     return len(orphans)
 

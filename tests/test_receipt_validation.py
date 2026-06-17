@@ -43,3 +43,25 @@ def test_personal_item_preserved():
     personal = [li for li in r.line_items if not li.is_business]
     assert len(personal) == 1
     assert personal[0].description == "Tape measure"
+
+
+def test_negative_line_item_amount_clamped_to_zero():
+    data = _base(line_items=[{"description": "refund", "amount": -5.0, "is_business": True}])
+    r = Receipt.model_validate(data)
+    assert r.line_items[0].amount == 0.0
+
+
+def test_negative_total_clamped():
+    r = Receipt.model_validate(_base(total=-10.0, subtotal=0.0, tax=0.0))
+    assert r.total == 0.0
+
+
+def test_invalid_date_raises():
+    import pytest
+    with pytest.raises(Exception):
+        Receipt.model_validate(_base(date="16-06-2026"))
+
+
+def test_valid_date_accepted():
+    r = Receipt.model_validate(_base(date="2026-01-31"))
+    assert r.date == "2026-01-31"
