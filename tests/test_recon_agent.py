@@ -41,8 +41,10 @@ class FakeStore:
 
 
 def test_reconcile_links_match_and_returns_orphan(monkeypatch):
-    # MockBankFeed emits Home Depot $143.50 (has receipt) + City Electric $320 (orphan)
-    receipts = [{"id": "r1", "total": 143.50, "merchant": "Home Depot", "date": (D - dt.timedelta(days=1)).isoformat()}]
+    # MockBankFeed dates its debits relative to today (today-1), so the receipt must
+    # be clock-relative too — a hardcoded date drifts out of the matcher's ±3-day window.
+    txn_date = dt.date.today() - dt.timedelta(days=1)
+    receipts = [{"id": "r1", "total": 143.50, "merchant": "Home Depot", "date": txn_date.isoformat()}]
     fake = FakeStore(receipts)
     monkeypatch.setattr(recon, "store", fake)
 
