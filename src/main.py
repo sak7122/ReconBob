@@ -52,6 +52,10 @@ def webhook(request):
         return ("forbidden", 403)
 
     sender = params.get("From", "")
+    if not sender:
+        # Not a Twilio inbound message (e.g. browser GET, health check, uptime probe).
+        return ("ReconBob webhook is up. POST Twilio messages here.", 200)
+
     num_media = int(params.get("NumMedia", "0"))
 
     if num_media == 0:

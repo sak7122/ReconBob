@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and fill. terraform.tfvars is gitignored — never commit real values.
+
+project_id         = "your-gcp-project-id"
+region             = "us-central1"
+firestore_location = "nam5" # US multi-region; or a single region. CANNOT change after creation.
+
+# Named Firestore databases — keep ReconBob data isolated from other apps sharing
+# the project (which own "(default)"), and isolate dev test writes from prod.
+firestore_database     = "reconbob"
+firestore_database_dev = "reconbob-dev"
+
+# Workload Identity Federation is locked to this exact repo:
+github_owner = "your-github-username-or-org"
+github_repo  = "ReconBob"
+
+# Export download files retention
+export_retention_days = 7
+
+# Daily reconciliation sweep. Leave recon_job_url empty until the function is deployed,
+# then set it and re-apply to create the Cloud Scheduler job.
+recon_job_url  = ""
+scheduler_cron = "0 13 * * *" # 13:00 UTC daily
+
+# Cost guardrail (optional — needs billing account + org billing perms)
+enable_budget   = false
+billing_account = "" # e.g. 0123AB-4567CD-89EF01
+budget_amount   = 50
