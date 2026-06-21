@@ -18,6 +18,16 @@ output "exports_bucket" {
   description = "Bucket for /export download links."
 }
 
+output "firestore_database" {
+  value       = google_firestore_database.reconbob.name
+  description = "Named Firestore DB (prod) — set as FIRESTORE_DB env var on the app."
+}
+
+output "firestore_database_dev" {
+  value       = google_firestore_database.reconbob_dev.name
+  description = "Named Firestore DB (dev) — set as FIRESTORE_DB on the dev deploy."
+}
+
 output "artifact_registry" {
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.app.repository_id}"
   description = "Image push target."

@@ -15,6 +15,18 @@ variable "firestore_location" {
   default     = "nam5"
 }
 
+variable "firestore_database" {
+  type        = string
+  description = "Named Firestore database id. A named DB (not '(default)') keeps ReconBob data isolated when sharing a project with other apps."
+  default     = "reconbob"
+}
+
+variable "firestore_database_dev" {
+  type        = string
+  description = "Named Firestore database id for the dev environment, so dev test writes never touch prod data."
+  default     = "reconbob-dev"
+}
+
 variable "github_owner" {
   type        = string
   description = "GitHub org/user that owns the repo (for Workload Identity Federation)."

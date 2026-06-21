@@ -3,11 +3,16 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 from typing import Any, Optional
 
 from google.cloud import firestore
 
 log = logging.getLogger("reconbob.store")
+
+# Named Firestore database (not "(default)") so ReconBob data stays isolated when
+# sharing a GCP project with other apps. Must match infra/terraform firestore_database.
+_DATABASE = os.getenv("FIRESTORE_DB", "reconbob")
 
 _client: Optional[firestore.Client] = None
 
@@ -15,7 +20,7 @@ _client: Optional[firestore.Client] = None
 def db() -> firestore.Client:
     global _client
     if _client is None:
-        _client = firestore.Client()
+        _client = firestore.Client(database=_DATABASE)
     return _client
 
 

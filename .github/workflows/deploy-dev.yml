@@ -53,7 +53,7 @@ jobs:
             --allow-unauthenticated \
             --min-instances "$MIN_INSTANCES" --max-instances 5 \
             --memory 1Gi --cpu 1 --timeout 120 --port 8080 \
-            --set-env-vars "ENV=$APP_ENV,GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_REGION=$REGION,BANK_FEED=mock,GEMINI_OCR_MODEL=gemini-2.0-flash,GEMINI_PRO_MODEL=gemini-2.0-pro,MAX_RECEIPTS_PER_USER_DAY=100,MAX_GEMINI_CALLS_DAY=5000,FUNCTION_TARGET=webhook,FUNCTION_SOURCE=src/main.py" \
+            --set-env-vars "ENV=$APP_ENV,GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_REGION=$REGION,FIRESTORE_DB=reconbob-dev,BANK_FEED=mock,GEMINI_OCR_MODEL=gemini-2.0-flash,GEMINI_PRO_MODEL=gemini-2.0-pro,MAX_RECEIPTS_PER_USER_DAY=100,MAX_GEMINI_CALLS_DAY=5000,FUNCTION_TARGET=webhook,FUNCTION_SOURCE=src/main.py" \
             --update-secrets "$APP_SECRETS"
 
       - name: Deploy recon-job → Cloud Run (private)
@@ -65,7 +65,7 @@ jobs:
             --no-allow-unauthenticated \
             --min-instances 0 --max-instances 3 \
             --memory 512Mi --cpu 1 --timeout 300 --port 8080 \
-            --set-env-vars "ENV=$APP_ENV,GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_REGION=$REGION,BANK_FEED=mock,FUNCTION_TARGET=recon_job,FUNCTION_SOURCE=src/recon_job.py" \
+            --set-env-vars "ENV=$APP_ENV,GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_REGION=$REGION,FIRESTORE_DB=reconbob-dev,BANK_FEED=mock,FUNCTION_TARGET=recon_job,FUNCTION_SOURCE=src/recon_job.py" \
             --update-secrets "$APP_SECRETS"
 
       - name: Allow runtime SA to invoke recon-job (Scheduler OIDC)
